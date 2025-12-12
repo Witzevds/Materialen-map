@@ -53,6 +53,8 @@ export function Dashboard() {
     if (deletingBedrijf) {
       await deleteBedrijf(deletingBedrijf.id);
       setDeletingBedrijf(null);
+      // Reload page to show updated list
+      window.location.reload();
     }
   };
 
