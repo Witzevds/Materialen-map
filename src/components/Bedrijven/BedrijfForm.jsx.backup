@@ -1,0 +1,445 @@
+import { useState, useEffect } from "react";
+import { X, MapPin, Loader2 } from "lucide-react";
+import axios from "axios";
+
+export function BedrijfForm({ bedrijf, onSave, onCancel }) {
+  const [formData, setFormData] = useState({
+    naam: "",
+    adres: "",
+    lat: "",
+    lng: "",
+    website: "",
+    contactpersoon: "",
+    email: "",
+    telefoon: "",
+    status: "geen-antwoord",
+    type_materiaal: "",
+    notities: "",
+  });
+  const [geocoding, setGeocoding] = useState(false);
+  const [geocodeError, setGeocodeError] = useState("");
+  const [suggestions, setSuggestions] = useState([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const [searchTimeout, setSearchTimeout] = useState(null);
+
+  useEffect(() => {
+    if (bedrijf) {
+      setFormData({
+        naam: bedrijf.naam || "",
+        adres: bedrijf.adres || "",
+        lat: bedrijf.lat || "",
+        lng: bedrijf.lng || "",
+        website: bedrijf.website || "",
+        contactpersoon: bedrijf.contactpersoon || "",
+        email: bedrijf.email || "",
+        telefoon: bedrijf.telefoon || "",
+        status: bedrijf.status || "geen-antwoord",
+        type_materiaal: bedrijf.type_materiaal || "",
+        notities: bedrijf.notities || "",
+      });
+    }
+  }, [bedrijf]);
+
+  const handleChange = (e) => {
+    const { name, value } = e.target;
+    setFormData((prev) => ({
+      ...prev,
+      [name]: value,
+    }));
+    
+    // Clear geocode error when address changes
+    if (name === 'adres') {
+      setGeocodeError("");
+      
+      // Clear previous timeout
+      if (searchTimeout) {
+        clearTimeout(searchTimeout);
+      }
+      
+      // Only search if user has typed at least 3 characters
+      if (value.length >= 3) {
+        // Set a timeout to avoid too many API calls
+        const timeout = setTimeout(() => {
+          searchAddressSuggestions(value);
+        }, 500); // Wait 500ms after user stops typing
+        
+        setSearchTimeout(timeout);
+      } else {
+        setSuggestions([]);
+        setShowSuggestions(false);
+      }
+    }
+  };
+
+  // Search for address suggestions as user types
+  const searchAddressSuggestions = async (query) => {
+    try {
+      const response = await axios.get(
+        `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&countrycodes=be&limit=5&addressdetails=1`,
+        {
+          headers: {
+            'User-Agent': 'Materialen-Kaart-App'
+          }
+        }
+      );
+
+      if (response.data && response.data.length > 0) {
+        setSuggestions(response.data);
+        setShowSuggestions(true);
+      } else {
+        setSuggestions([]);
+        setShowSuggestions(false);
+      }
+    } catch (error) {
+      console.error('Suggestion search error:', error);
+      setSuggestions([]);
+      setShowSuggestions(false);
+    }
+  };
+
+  // Select a suggestion from the dropdown
+  const selectSuggestion = (suggestion) => {
+    setFormData(prev => ({
+      ...prev,
+      adres: suggestion.display_name,
+      lat: suggestion.lat,
+      lng: suggestion.lon
+    }));
+    setSuggestions([]);
+    setShowSuggestions(false);
+    setGeocodeError("");
+  };
+
+  // Geocode address to get lat/lng using Nominatim (OpenStreetMap)
+  const handleGeocodeAddress = async () => {
+    if (!formData.adres) {
+      setGeocodeError("Vul eerst een adres in");
+      return;
+    }
+
+    setGeocoding(true);
+    setGeocodeError("");
+
+    try {
+      // Use Nominatim API (free, no API key needed)
+      const response = await axios.get(
+        `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(formData.adres)}&countrycodes=be&limit=1`,
+        {
+          headers: {
+            'User-Agent': 'Materialen-Kaart-App'
+          }
+        }
+      );
+
+      if (response.data && response.data.length > 0) {
+        const result = response.data[0];
+        setFormData(prev => ({
+          ...prev,
+          lat: result.lat,
+          lng: result.lon
+        }));
+        setGeocodeError("");
+      } else {
+        setGeocodeError("Adres niet gevonden. Probeer een specifiekere locatie (bijv. 'Industrieweg 12, 9000 Gent, België')");
+      }
+    } catch (error) {
+      console.error('Geocoding error:', error);
+      setGeocodeError("Fout bij het opzoeken van de locatie");
+    } finally {
+      setGeocoding(false);
+    }
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+
+    // Convert lat/lng to numbers
+    const dataToSave = {
+      ...formData,
+      lat: parseFloat(formData.lat),
+      lng: parseFloat(formData.lng),
+    };
+
+    await onSave(dataToSave);
+    
+    // Reload page after save
+    window.location.reload();
+  };
+
+  return (
+    <div className="modal-overlay">
+      <div className="modal-content">
+        <div className="modal-header">
+          <h2 className="modal-title">
+            {bedrijf ? "Bedrijf Bewerken" : "Nieuw Bedrijf Toevoegen"}
+          </h2>
+          <button
+            onClick={onCancel}
+            className="modal-close"
+          >
+            <X style={{ width: '1.5rem', height: '1.5rem' }} />
+          </button>
+        </div>
+
+        <form onSubmit={handleSubmit} className="modal-body">
+          <div className="form-grid">
+            <div className="form-grid-full">
+              <label className="form-label">
+                Bedrijfsnaam <span style={{ color: '#dc2626' }}>*</span>
+              </label>
+              <input
+                type="text"
+                name="naam"
+                value={formData.naam}
+                onChange={handleChange}
+                className="form-input"
+                required
+              />
+            </div>
+
+            <div className="form-grid-full">
+              <label className="form-label">
+                Adres <span style={{ color: '#dc2626' }}>*</span>
+              </label>
+              <div style={{ position: 'relative' }}>
+                <div style={{ display: 'flex', gap: '0.5rem' }}>
+                  <input
+                    type="text"
+                    name="adres"
+                    value={formData.adres}
+                    onChange={handleChange}
+                    onFocus={() => suggestions.length > 0 && setShowSuggestions(true)}
+                    className="form-input"
+                    style={{ flex: 1 }}
+                    placeholder="Typ bijv. 'Gent' of 'Industrieweg 12, Gent'"
+                    required
+                    autoComplete="off"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleGeocodeAddress}
+                    disabled={geocoding || !formData.adres}
+                    className="btn btn-primary btn-icon"
+                    title="Zoek locatie op basis van adres"
+                    style={{ background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)', boxShadow: '0 10px 25px -5px rgba(16, 185, 129, 0.3)' }}
+                  >
+                    {geocoding ? (
+                      <Loader2 style={{ width: '1.25rem', height: '1.25rem', animation: 'spin 1s linear infinite' }} />
+                    ) : (
+                      <MapPin style={{ width: '1.25rem', height: '1.25rem' }} />
+                    )}
+                    <span style={{ display: 'none' }} className="btn-text-sm">Zoek Locatie</span>
+                  </button>
+                </div>
+                
+                {/* Suggestions Dropdown */}
+                {showSuggestions && suggestions.length > 0 && (
+                  <div className="suggestion-dropdown">
+                    {suggestions.map((suggestion, index) => (
+                      <button
+                        key={index}
+                        type="button"
+                        onClick={() => selectSuggestion(suggestion)}
+                        className="suggestion-item"
+                      >
+                        <MapPin style={{ width: '1rem', height: '1rem', color: '#3b82f6', marginTop: '0.25rem', flexShrink: 0 }} />
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <p style={{ fontSize: '0.875rem', fontWeight: 500, color: '#111827', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {suggestion.display_name}
+                          </p>
+                          {suggestion.address && (
+                            <p style={{ fontSize: '0.75rem', color: '#6b7280', marginTop: '0.25rem' }}>
+                                {[
+                                  suggestion.address.road,
+                                  suggestion.address.house_number,
+                                  suggestion.address.city || suggestion.address.town || suggestion.address.village,
+                                  suggestion.address.postcode
+                                ].filter(Boolean).join(', ')}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+              {geocodeError && (
+                <p className="mt-1 text-sm text-red-600">{geocodeError}</p>
+              )}
+            </div>
+
+            <div className="md:col-span-2 bg-blue-50 border border-blue-200 rounded-lg p-3 text-sm text-blue-800">
+              <p className="font-medium mb-1">💡 Tip: Begin met typen voor suggesties</p>
+              <p>Typ een stad, straat of adres in België en selecteer een suggestie uit de lijst. De coördinaten worden automatisch ingevuld!</p>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Latitude {!formData.lat && <span className="text-red-500">*</span>}
+              </label>
+              <input
+                type="number"
+                step="any"
+                name="lat"
+                value={formData.lat}
+                onChange={handleChange}
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
+                placeholder="51.0543"
+                required
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Longitude {!formData.lng && <span className="text-red-500">*</span>}
+              </label>
+              <input
+                type="number"
+                step="any"
+                name="lng"
+                value={formData.lng}
+                onChange={handleChange}
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
+                placeholder="3.7174"
+                required
+              />
+            </div>
+
+            <div className="md:col-span-2">
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Website
+              </label>
+              <input
+                type="url"
+                name="website"
+                value={formData.website}
+                onChange={handleChange}
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
+                placeholder="https://example.com"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Contactpersoon
+              </label>
+              <input
+                type="text"
+                name="contactpersoon"
+                value={formData.contactpersoon}
+                onChange={handleChange}
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
+                placeholder="Jan Janssens"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Email
+              </label>
+              <input
+                type="email"
+                name="email"
+                value={formData.email}
+                onChange={handleChange}
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
+                placeholder="jan@example.com"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Telefoon
+              </label>
+              <input
+                type="tel"
+                name="telefoon"
+                value={formData.telefoon}
+                onChange={handleChange}
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
+                placeholder="+32 9 123 45 67"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Status <span className="text-red-500">*</span>
+              </label>
+              <select
+                name="status"
+                value={formData.status}
+                onChange={handleChange}
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
+                required
+              >
+                <option value="deal">Deal Gesloten</option>
+                <option value="antwoord">Antwoord Gegeven</option>
+                <option value="geen-antwoord">Geen Antwoord</option>
+              </select>
+            </div>
+
+            <div className="md:col-span-2">
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Type Materiaal
+              </label>
+              <input
+                type="text"
+                name="type_materiaal"
+                value={formData.type_materiaal}
+                onChange={handleChange}
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
+                placeholder="Hout, Steen, Metaal, etc."
+              />
+            </div>
+
+            <div className="md:col-span-2">
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Notities
+              </label>
+              <textarea
+                name="notities"
+                value={formData.notities}
+                onChange={handleChange}
+                rows="3"
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none resize-none"
+                placeholder="Extra informatie over dit bedrijf..."
+              />
+            </div>
+          </div>
+
+          <div className="flex space-x-3 pt-4 border-t">
+            <button
+              type="button"
+              onClick={onCancel}
+              className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition"
+            >
+              Annuleren
+            </button>
+            <button
+              type="submit"
+              className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition"
+            >
+              {bedrijf ? "Bijwerken" : "Toevoegen"}
+            </button>
+          </div>
+        </form>
+
+        <div className="px-6 py-4 bg-gray-50 border-t text-sm text-gray-600">
+          <p>
+            💡 <strong>Tip:</strong> Gebruik{" "}
+            <a
+              href="https://www.latlong.net/"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-blue-600 hover:underline"
+            >
+              latlong.net
+            </a>{" "}
+            om de coördinaten van een adres te vinden.
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
